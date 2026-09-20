@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # CORS
     CORS_ALLOWED_ORIGINS: str = "http://localhost:3000"
 
+    # Upload guardrail. The largest fixture in marketing-test-examples/ is
+    # ~5.5KB; this is set far above any realistic single upload (including
+    # HTML/email with a few embedded images) while still bounding worst-case
+    # request size/cost on a publicly reachable endpoint.
+    MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MiB
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
