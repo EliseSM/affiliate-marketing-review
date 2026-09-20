@@ -123,12 +123,28 @@ async def upload_batch(
     if poc_email and "@" not in poc_email:
         raise HTTPException(status_code=400, detail="poc_email must be a valid email address.")
 
+    # Cheap early rejection using the size Starlette already tracked while
+    # streaming the multipart body, before we buffer the whole thing.
+    if file.size is not None and file.size > settings.MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB upload limit.",
+        )
+
     try:
         upload_type, strategy = get_strategy_for_filename(file.filename)
     except UnsupportedFileTypeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     file_bytes = await file.read()
+    # Authoritative check in case `file.size` wasn't populated (e.g. a client
+    # that doesn't send a Content-Length per part).
+    if len(file_bytes) > settings.MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB upload limit.",
+        )
+
     parsed_submissions = strategy.parse(file_bytes, file.filename)
 
     storage = SupabaseStorage(settings)

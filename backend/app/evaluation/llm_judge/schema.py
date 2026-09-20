@@ -44,3 +44,24 @@ class ExtractedClaim(BaseModel):
 class JudgeResult(BaseModel):
     dimension_scores: list[DimensionScore]
     claims: list[ExtractedClaim] = Field(default_factory=list)
+
+
+class IncompleteJudgeResultError(ValueError):
+    """Raised when the LLM omits a score for one or more active rubric
+    dimensions. A missing dimension isn't just an incomplete audit trail --
+    pipeline._compute_rollup only inspects dimensions that were actually
+    returned, so a real violation on an omitted dimension would silently
+    never fail the run. Providers should treat this the same as a schema
+    validation failure and retry."""
+
+
+def validate_dimension_coverage(
+    result: JudgeResult, rubric_dimensions: list[RubricDimensionInfo]
+) -> None:
+    expected = {dim.key for dim in rubric_dimensions}
+    returned = {score.dimension_key for score in result.dimension_scores}
+    missing = expected - returned
+    if missing:
+        raise IncompleteJudgeResultError(
+            f"LLM response is missing a score for rubric dimension(s): {', '.join(sorted(missing))}"
+        )
