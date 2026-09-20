@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <header className="border-b border-zinc-200 bg-white">
             <nav className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-4">
               <Link href="/submissions" className="text-lg font-semibold">
-                Affiliate Review
+                Marketing Review Tool
               </Link>
               <Link
                 href="/submissions"
