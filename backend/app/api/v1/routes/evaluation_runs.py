@@ -4,9 +4,12 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, SettingsDep
+from app.api.v1.routes.converters import run_to_out
+from app.db.models.deterministic_check_result import DeterministicCheckResult
 from app.db.models.evaluation_run import EvaluationRun
+from app.db.models.llm_judge_result import LLMJudgeResult
 from app.evaluation.job_runner import execute_now
-from app.schemas.submission import DeterministicCheckResultOut, EvaluationRunOut, LLMJudgeResultOut
+from app.schemas.submission import EvaluationRunOut
 
 router = APIRouter(prefix="/evaluation-runs", tags=["evaluation-runs"])
 
@@ -17,8 +20,11 @@ async def get_evaluation_run(session: DbSession, run_id: uuid.UUID) -> Evaluatio
         EvaluationRun,
         run_id,
         options=[
-            selectinload(EvaluationRun.llm_judge_results),
-            selectinload(EvaluationRun.deterministic_check_results),
+            selectinload(EvaluationRun.llm_judge_results).selectinload(LLMJudgeResult.rubric_dimension),
+            selectinload(EvaluationRun.deterministic_check_results).selectinload(
+                DeterministicCheckResult.rule_definition
+            ),
+            selectinload(EvaluationRun.claims),
         ],
         # Forces a fresh reload (and re-application of the eager-load options
         # above) even if this session already has a stale, non-eager-loaded
@@ -33,21 +39,7 @@ async def get_evaluation_run(session: DbSession, run_id: uuid.UUID) -> Evaluatio
     if run is None:
         raise HTTPException(status_code=404, detail="Evaluation run not found.")
 
-    return EvaluationRunOut(
-        id=run.id,
-        status=run.status,
-        started_at=run.started_at,
-        completed_at=run.completed_at,
-        error_message=run.error_message,
-        llm_provider=run.llm_provider,
-        overall_score=float(run.overall_score) if run.overall_score is not None else None,
-        overall_flag=run.overall_flag,
-        summary=run.summary,
-        llm_judge_results=[LLMJudgeResultOut.model_validate(r) for r in run.llm_judge_results],
-        deterministic_check_results=[
-            DeterministicCheckResultOut.model_validate(r) for r in run.deterministic_check_results
-        ],
-    )
+    return run_to_out(run)
 
 
 @router.post("/{run_id}/retry", response_model=EvaluationRunOut, status_code=202)
