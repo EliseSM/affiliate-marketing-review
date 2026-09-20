@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment } from "react";
-import Link from "next/link";
 import type { Submission } from "@/lib/types";
 import { EvaluationSummaryDropdown } from "./EvaluationSummaryDropdown";
 import { OverallFlagBadge, SubmissionStatusBadge } from "./SubmissionStatusBadge";
@@ -98,13 +97,8 @@ export function SubmissionsTable({
                   aria-label={`Select submission ${submission.id}`}
                 />
               </td>
-              <td className="py-2 pr-4">
-                <Link
-                  href={`/submissions/${submission.id}`}
-                  className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-                >
-                  {submission.content_type.replace("_", " ")}
-                </Link>
+              <td className="py-2 pr-4 font-medium text-zinc-900">
+                {submission.content_type.replace("_", " ")}
               </td>
               <td className="py-2 pr-4 text-zinc-600">
                 {submission.project_name ?? "—"}
