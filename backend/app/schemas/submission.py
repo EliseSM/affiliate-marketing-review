@@ -16,19 +16,21 @@ class SubmissionAssetOut(BaseModel):
 
 
 class DeterministicCheckResultOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    rule_definition_id: uuid.UUID
+    # Not from_attributes: rule_key/display_name come from the joined
+    # rule_definition relationship, not directly off this row, so callers
+    # build this explicitly (see app/api/v1/routes/converters.py) rather than
+    # via model_validate.
+    rule_key: str
+    display_name: str
     result: str
     evidence: dict
 
 
 class LLMJudgeResultOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    rubric_dimension_id: uuid.UUID
+    # See DeterministicCheckResultOut note -- dimension_key/display_name come
+    # from the joined rubric_dimension relationship.
+    dimension_key: str
+    display_name: str
     score: int
     rationale: str
 
@@ -59,8 +61,9 @@ class EvaluationRunOut(BaseModel):
     overall_score: Optional[float]
     overall_flag: Optional[str]
     summary: Optional[dict]
-    llm_judge_results: list[LLMJudgeResultOut] = []
-    deterministic_check_results: list[DeterministicCheckResultOut] = []
+    judge_results: list[LLMJudgeResultOut] = []
+    deterministic_results: list[DeterministicCheckResultOut] = []
+    claims: list[ClaimOut] = []
 
 
 class SubmissionListItemOut(BaseModel):
@@ -83,7 +86,6 @@ class SubmissionDetailOut(SubmissionListItemOut):
     landing_url: Optional[str]
     metadata: dict
     assets: list[SubmissionAssetOut] = []
-    claims: list[ClaimOut] = []
 
 
 class SubmissionUploadResultOut(BaseModel):

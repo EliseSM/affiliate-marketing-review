@@ -5,18 +5,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, SettingsDep
-from app.db.models.claim import Claim
+from app.api.v1.routes.converters import run_to_out
+from app.db.models.deterministic_check_result import DeterministicCheckResult
 from app.db.models.evaluation_run import EvaluationRun
+from app.db.models.llm_judge_result import LLMJudgeResult
 from app.db.models.submission import Submission
 from app.db.models.submission_asset import SubmissionAsset
 from app.db.models.submission_batch import SubmissionBatch
 from app.evaluation.job_runner import BackgroundTasksJobRunner
 from app.ingestion.factory import UnsupportedFileTypeError, get_strategy_for_filename
 from app.schemas.submission import (
-    ClaimOut,
-    DeterministicCheckResultOut,
-    EvaluationRunOut,
-    LLMJudgeResultOut,
     SubmissionAssetOut,
     SubmissionDetailOut,
     SubmissionListItemOut,
@@ -34,26 +32,6 @@ SORT_FIELDS = {
 }
 
 
-def _run_to_out(run: EvaluationRun | None) -> EvaluationRunOut | None:
-    if run is None:
-        return None
-    return EvaluationRunOut(
-        id=run.id,
-        status=run.status,
-        started_at=run.started_at,
-        completed_at=run.completed_at,
-        error_message=run.error_message,
-        llm_provider=run.llm_provider,
-        overall_score=float(run.overall_score) if run.overall_score is not None else None,
-        overall_flag=run.overall_flag,
-        summary=run.summary,
-        llm_judge_results=[LLMJudgeResultOut.model_validate(r) for r in run.llm_judge_results],
-        deterministic_check_results=[
-            DeterministicCheckResultOut.model_validate(r) for r in run.deterministic_check_results
-        ],
-    )
-
-
 def _submission_to_list_item(submission: Submission, latest_run: EvaluationRun | None) -> SubmissionListItemOut:
     return SubmissionListItemOut(
         id=submission.id,
@@ -64,7 +42,7 @@ def _submission_to_list_item(submission: Submission, latest_run: EvaluationRun |
         project_name=submission.project_name,
         status=submission.status,
         created_at=submission.created_at,
-        latest_run=_run_to_out(latest_run),
+        latest_run=run_to_out(latest_run),
     )
 
 
@@ -72,8 +50,11 @@ async def _latest_run_for(session: DbSession, submission_id: uuid.UUID) -> Evalu
     result = await session.execute(
         select(EvaluationRun)
         .options(
-            selectinload(EvaluationRun.llm_judge_results),
-            selectinload(EvaluationRun.deterministic_check_results),
+            selectinload(EvaluationRun.llm_judge_results).selectinload(LLMJudgeResult.rubric_dimension),
+            selectinload(EvaluationRun.deterministic_check_results).selectinload(
+                DeterministicCheckResult.rule_definition
+            ),
+            selectinload(EvaluationRun.claims),
         )
         .where(EvaluationRun.submission_id == submission_id)
         .order_by(EvaluationRun.created_at.desc())
@@ -281,9 +262,6 @@ async def get_submission(session: DbSession, submission_id: uuid.UUID) -> Submis
     )
     assets = assets_result.scalars().all()
 
-    claims_result = await session.execute(select(Claim).where(Claim.submission_id == submission_id))
-    claims = claims_result.scalars().all()
-
     return SubmissionDetailOut(
         id=submission.id,
         content_type=submission.content_type,
@@ -293,11 +271,10 @@ async def get_submission(session: DbSession, submission_id: uuid.UUID) -> Submis
         project_name=submission.project_name,
         status=submission.status,
         created_at=submission.created_at,
-        latest_run=_run_to_out(latest_run),
+        latest_run=run_to_out(latest_run),
         raw_text=submission.raw_text,
         raw_html=submission.raw_html,
         landing_url=submission.landing_url,
         metadata=submission.metadata_,
         assets=[SubmissionAssetOut.model_validate(a) for a in assets],
-        claims=[ClaimOut.model_validate(c) for c in claims],
     )
