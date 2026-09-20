@@ -5,6 +5,7 @@ const STATUS_STYLES: Record<SubmissionStatus | RunStatus, string> = {
   evaluating: "bg-blue-100 text-blue-700",
   evaluated: "bg-zinc-100 text-zinc-700",
   error: "bg-red-100 text-red-700",
+  exported: "bg-purple-100 text-purple-700",
   pending: "bg-zinc-100 text-zinc-700",
   running: "bg-blue-100 text-blue-700",
   completed: "bg-zinc-100 text-zinc-700",

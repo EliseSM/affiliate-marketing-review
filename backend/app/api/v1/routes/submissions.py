@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, SettingsDep
@@ -25,6 +25,13 @@ from app.schemas.submission import (
 from app.storage.supabase_storage import SupabaseStorage
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
+
+# Allow-listed sort fields for GET /submissions. `sort` query values are either
+# the bare field name (ascending) or "-field" (descending).
+SORT_FIELDS = {
+    "created_at": Submission.created_at,
+    "project_name": Submission.project_name,
+}
 
 
 def _run_to_out(run: EvaluationRun | None) -> EvaluationRunOut | None:
@@ -54,6 +61,7 @@ def _submission_to_list_item(submission: Submission, latest_run: EvaluationRun |
         product_identifier=submission.product_identifier,
         affiliate_partner=submission.affiliate_partner,
         poc_email=submission.poc_email,
+        project_name=submission.project_name,
         status=submission.status,
         created_at=submission.created_at,
         latest_run=_run_to_out(latest_run),
@@ -96,6 +104,16 @@ async def upload_batch(
             "reviewer knows who to follow up with. Applied to every submission parsed from this "
             "file. Excel/CSV uploads can instead set this per-row via a 'poc_email' column; this "
             "override exists for single-item formats (HTML/email/plaintext/image)."
+        ),
+    ),
+    project_name: str | None = Form(
+        default=None,
+        description=(
+            "Optional free-text grouping label so resubmissions of the same marketing material "
+            "(e.g. an improved version after a failed review) can be filtered together. Applied "
+            "to every submission parsed from this file. Excel/CSV uploads can instead set this "
+            "per-row via a 'project_name' column; this override exists for single-item formats "
+            "(HTML/email/plaintext/image)."
         ),
     ),
 ) -> SubmissionUploadResultOut:
@@ -146,6 +164,7 @@ async def upload_batch(
             product_identifier=product_identifier or parsed.product_identifier,
             affiliate_partner=parsed.affiliate_partner,
             poc_email=poc_email or parsed.poc_email,
+            project_name=project_name or parsed.project_name,
             landing_url=parsed.landing_url,
             metadata_=parsed.metadata,
         )
@@ -190,18 +209,36 @@ async def upload_batch(
 async def list_submissions(
     session: DbSession,
     status: str | None = Query(default=None),
+    exclude_status: str | None = Query(
+        default=None,
+        description=(
+            "Excludes submissions with this status. Used by the frontend's 'Active' tab to hide "
+            "submissions with status='exported' without needing a dedicated tab query param."
+        ),
+    ),
     content_type: str | None = Query(default=None),
     overall_flag: str | None = Query(default=None),
-    sort: str = Query(default="-created_at"),
+    project_name: str | None = Query(
+        default=None, description="Case-insensitive exact match, for grouping resubmissions."
+    ),
+    sort: str = Query(
+        default="-created_at",
+        description=f"Bare field name for ascending, '-field' for descending. Allowed fields: {', '.join(SORT_FIELDS)}.",
+    ),
 ) -> list[SubmissionListItemOut]:
     stmt = select(Submission)
     if status:
         stmt = stmt.where(Submission.status == status)
+    if exclude_status:
+        stmt = stmt.where(Submission.status != exclude_status)
     if content_type:
         stmt = stmt.where(Submission.content_type == content_type)
+    if project_name:
+        stmt = stmt.where(func.lower(Submission.project_name) == project_name.lower())
 
-    if sort.lstrip("-") == "created_at":
-        stmt = stmt.order_by(Submission.created_at.desc() if sort.startswith("-") else Submission.created_at)
+    sort_column = SORT_FIELDS.get(sort.lstrip("-"))
+    if sort_column is not None:
+        stmt = stmt.order_by(sort_column.desc() if sort.startswith("-") else sort_column.asc())
 
     result = await session.execute(stmt)
     submissions = result.scalars().all()
@@ -237,6 +274,7 @@ async def get_submission(session: DbSession, submission_id: uuid.UUID) -> Submis
         product_identifier=submission.product_identifier,
         affiliate_partner=submission.affiliate_partner,
         poc_email=submission.poc_email,
+        project_name=submission.project_name,
         status=submission.status,
         created_at=submission.created_at,
         latest_run=_run_to_out(latest_run),

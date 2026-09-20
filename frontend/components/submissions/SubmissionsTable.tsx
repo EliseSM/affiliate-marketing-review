@@ -6,13 +6,17 @@ import type { Submission } from "@/lib/types";
 import { EvaluationSummaryDropdown } from "./EvaluationSummaryDropdown";
 import { OverallFlagBadge, SubmissionStatusBadge } from "./SubmissionStatusBadge";
 
-const TABLE_COLUMN_COUNT = 8;
+const TABLE_COLUMN_COUNT = 9;
+
+type SortDirection = "asc" | "desc";
 
 interface SubmissionsTableProps {
   submissions: Submission[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: () => void;
+  projectNameSort: SortDirection | null;
+  onToggleProjectNameSort: () => void;
 }
 
 function formatDate(value: string): string {
@@ -28,6 +32,8 @@ export function SubmissionsTable({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
+  projectNameSort,
+  onToggleProjectNameSort,
 }: SubmissionsTableProps) {
   const allSelected =
     submissions.length > 0 && submissions.every((s) => selectedIds.has(s.id));
@@ -53,6 +59,25 @@ export function SubmissionsTable({
             />
           </th>
           <th className="py-2 pr-4">Content type</th>
+          <th className="py-2 pr-4">
+            <button
+              type="button"
+              onClick={onToggleProjectNameSort}
+              className="flex items-center gap-1 uppercase tracking-wide text-zinc-500 hover:text-zinc-700"
+            >
+              Project
+              <span aria-hidden="true" className={projectNameSort ? "text-zinc-900" : "text-zinc-400"}>
+                {projectNameSort === "desc" ? "▼" : projectNameSort === "asc" ? "▲" : "⇅"}
+              </span>
+              <span className="sr-only">
+                {projectNameSort === "asc"
+                  ? "sorted ascending"
+                  : projectNameSort === "desc"
+                    ? "sorted descending"
+                    : "not sorted"}
+              </span>
+            </button>
+          </th>
           <th className="py-2 pr-4">Product</th>
           <th className="py-2 pr-4">Affiliate</th>
           <th className="py-2 pr-4">POC email</th>
@@ -82,6 +107,9 @@ export function SubmissionsTable({
                 </Link>
               </td>
               <td className="py-2 pr-4 text-zinc-600">
+                {submission.project_name ?? "—"}
+              </td>
+              <td className="py-2 pr-4 text-zinc-600">
                 {submission.product_identifier ?? "—"}
               </td>
               <td className="py-2 pr-4 text-zinc-600">
@@ -109,7 +137,7 @@ export function SubmissionsTable({
                 {formatDate(submission.created_at)}
               </td>
             </tr>
-            {submission.status === "evaluated" && (
+            {submission.latest_run?.summary && (
               <tr className="border-b border-zinc-100">
                 <td colSpan={TABLE_COLUMN_COUNT} className="bg-white px-2 py-2">
                   <EvaluationSummaryDropdown summary={submission.latest_run?.summary ?? null} />

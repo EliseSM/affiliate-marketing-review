@@ -71,6 +71,7 @@ class SubmissionListItemOut(BaseModel):
     product_identifier: Optional[str]
     affiliate_partner: Optional[str]
     poc_email: Optional[str]
+    project_name: Optional[str]
     status: str
     created_at: datetime
     latest_run: Optional[EvaluationRunOut] = None

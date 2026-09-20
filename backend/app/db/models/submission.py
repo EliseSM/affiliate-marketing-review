@@ -15,7 +15,10 @@ if TYPE_CHECKING:
     from app.db.models.submission_batch import SubmissionBatch
 
 # content_type allowed values: web_page | email | ad_copy
-# status allowed values: ingested | evaluating | evaluated | error
+# status allowed values: ingested | evaluating | evaluated | error | exported
+# "exported" is set once a submission is included in a POST /exports call --
+# it's treated as the human-review terminal state and moves the submission out
+# of the default "active" view into the "exported" tab in the frontend.
 
 
 class Submission(UUIDPKMixin, TimestampMixin, Base):
@@ -35,6 +38,9 @@ class Submission(UUIDPKMixin, TimestampMixin, Base):
     # so a reviewer knows who to follow up with. Captured at upload time (see
     # POST /submissions/batch and the excel/csv poc_email column alias).
     poc_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Free-text grouping label so resubmissions of the same marketing material
+    # (e.g. an improved version after a failed review) can be filtered together.
+    project_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String, nullable=False, default="ingested")
     updated_at: Mapped[datetime] = mapped_column(

@@ -23,11 +23,13 @@ def test_csv_ingestion_parses_one_submission_per_row():
     assert first.landing_url == "https://example.com/apply"
     assert first.metadata.get("campaign") == "spring-promo"
     assert first.poc_email == "marketer@bestratesco.example"
+    assert first.project_name == "Spring Loan Refresh"
 
     second = submissions[1]
     assert second.content_type == "email"
     assert "Guaranteed approval" in second.raw_text
     assert second.poc_email is None
+    assert second.project_name is None
 
 
 def test_html_ingestion_extracts_text_inline_image_and_landing_url():

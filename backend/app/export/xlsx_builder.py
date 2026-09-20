@@ -8,8 +8,10 @@ from app.db.models.submission import Submission
 COLUMNS = [
     "submission_id",
     "content_type",
+    "project_name",
     "product_identifier",
     "affiliate_partner",
+    "poc_email",
     "landing_url",
     "status",
     "overall_score",
@@ -32,8 +34,10 @@ def build_submissions_workbook(rows: list[tuple[Submission, EvaluationRun | None
             [
                 str(submission.id),
                 submission.content_type,
+                submission.project_name or "",
                 submission.product_identifier or "",
                 submission.affiliate_partner or "",
+                submission.poc_email or "",
                 submission.landing_url or "",
                 submission.status,
                 float(run.overall_score) if run and run.overall_score is not None else "",

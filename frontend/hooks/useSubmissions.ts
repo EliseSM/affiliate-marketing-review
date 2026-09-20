@@ -23,6 +23,25 @@ export function useSubmissionsList(filters: SubmissionListFilters) {
   });
 }
 
+// Counts for the Active/Exported tab labels. Independent of whatever
+// content_type/overall_flag filters are currently applied within a tab --
+// these reflect the total membership of each tab, like an inbox count.
+export function useSubmissionTabCounts() {
+  const active = useQuery({
+    queryKey: ["submissions", { exclude_status: "exported" }],
+    queryFn: () => listSubmissions({ exclude_status: "exported" }),
+  });
+  const exported = useQuery({
+    queryKey: ["submissions", { status: "exported" }],
+    queryFn: () => listSubmissions({ status: "exported" }),
+  });
+
+  return {
+    active: active.data?.length,
+    exported: exported.data?.length,
+  };
+}
+
 export function useSubmission(id: string) {
   return useQuery({
     queryKey: ["submission", id],

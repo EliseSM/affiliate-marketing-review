@@ -11,6 +11,7 @@ import { AssetGallery } from "@/components/submissions/AssetGallery";
 import {
   OverallFlagBadge,
   RunStatusBadge,
+  SubmissionStatusBadge,
 } from "@/components/submissions/SubmissionStatusBadge";
 
 interface SubmissionDetailPageProps {
@@ -52,6 +53,7 @@ export default function SubmissionDetailPage({
           {submission.content_type.replace("_", " ")} submission
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
+          {submission.project_name ?? "No project name"} &middot;{" "}
           {submission.product_identifier ?? "No product identifier"} &middot;{" "}
           {submission.affiliate_partner ?? "No affiliate partner"} &middot;{" "}
           {submission.poc_email ? (
@@ -66,6 +68,7 @@ export default function SubmissionDetailPage({
           )}
         </p>
         <div className="mt-3 flex items-center gap-3">
+          <SubmissionStatusBadge status={submission.status} />
           {run && <RunStatusBadge status={run.status} />}
           <OverallFlagBadge flag={run?.overall_flag ?? null} />
           {run?.status === "failed" && (

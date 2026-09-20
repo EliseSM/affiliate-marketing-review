@@ -27,6 +27,13 @@ COLUMN_ALIASES: dict[str, list[str]] = {
         "contact email",
         "submitter_email",
     ],
+    "project_name": [
+        "project_name",
+        "project name",
+        "project",
+        "material group",
+        "campaign group",
+    ],
 }
 
 DEFAULT_CONTENT_TYPE = "web_page"
@@ -71,6 +78,7 @@ def _row_to_submission(
         affiliate_partner=get("affiliate_partner"),
         landing_url=get("landing_url"),
         poc_email=get("poc_email"),
+        project_name=get("project_name"),
         metadata=metadata,
     )
 

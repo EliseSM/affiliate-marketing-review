@@ -16,13 +16,19 @@ export function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [contentType, setContentType] = useState<ContentType>("web_page");
   const [pocEmail, setPocEmail] = useState("");
+  const [projectName, setProjectName] = useState("");
 
   const mutation = useMutation<UploadBatchResponse, Error, void>({
     mutationFn: () => {
       if (!file) {
         throw new Error("Choose a file first");
       }
-      return uploadBatch(file, contentType, pocEmail.trim() || undefined);
+      return uploadBatch(
+        file,
+        contentType,
+        pocEmail.trim() || undefined,
+        projectName.trim() || undefined
+      );
     },
   });
 
@@ -75,6 +81,24 @@ export function UploadForm() {
           Who owns this marketing material, so a reviewer knows who to follow up with. Applied to
           every submission in this upload &mdash; leave blank if your Excel/CSV file already has a
           per-row &quot;poc_email&quot; column, since filling this in will override it.
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="project-name" className="block text-sm font-medium text-zinc-700">
+          Project name
+        </label>
+        <input
+          id="project-name"
+          type="text"
+          value={projectName}
+          onChange={(event) => setProjectName(event.target.value)}
+          placeholder="e.g. Spring Loan Refresh"
+          className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none"
+        />
+        <p className="mt-1 text-xs text-zinc-500">
+          Optional. Use the same name across resubmissions of the same marketing material (e.g.
+          an improved version after a failed review) so they can be filtered together later.
         </p>
       </div>
 

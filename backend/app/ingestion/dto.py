@@ -19,6 +19,7 @@ class ParsedSubmission:
     product_identifier: Optional[str] = None
     affiliate_partner: Optional[str] = None
     poc_email: Optional[str] = None
+    project_name: Optional[str] = None
     landing_url: Optional[str] = None
     metadata: dict = field(default_factory=dict)
     assets: list[ParsedAsset] = field(default_factory=list)

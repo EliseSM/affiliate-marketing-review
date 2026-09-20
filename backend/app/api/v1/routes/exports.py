@@ -30,6 +30,15 @@ async def export_submissions(session: DbSession, body: ExportRequest) -> Streami
 
     workbook_bytes = build_submissions_workbook(rows)
 
+    # Exporting is treated as the human-review terminal state: once a submission
+    # has been pulled into a reviewer's spreadsheet, it moves out of the default
+    # "active" list into the "exported" tab. The workbook above is built from
+    # the pre-export status, so the export still shows the real evaluation
+    # status (e.g. "evaluated") rather than "exported" for every row.
+    for submission in submissions:
+        submission.status = "exported"
+    await session.commit()
+
     return StreamingResponse(
         io.BytesIO(workbook_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
