@@ -1,0 +1,249 @@
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import DbSession, SettingsDep
+from app.db.models.claim import Claim
+from app.db.models.evaluation_run import EvaluationRun
+from app.db.models.submission import Submission
+from app.db.models.submission_asset import SubmissionAsset
+from app.db.models.submission_batch import SubmissionBatch
+from app.evaluation.job_runner import BackgroundTasksJobRunner
+from app.ingestion.factory import UnsupportedFileTypeError, get_strategy_for_filename
+from app.schemas.submission import (
+    ClaimOut,
+    DeterministicCheckResultOut,
+    EvaluationRunOut,
+    LLMJudgeResultOut,
+    SubmissionAssetOut,
+    SubmissionDetailOut,
+    SubmissionListItemOut,
+    SubmissionUploadResultOut,
+)
+from app.storage.supabase_storage import SupabaseStorage
+
+router = APIRouter(prefix="/submissions", tags=["submissions"])
+
+
+def _run_to_out(run: EvaluationRun | None) -> EvaluationRunOut | None:
+    if run is None:
+        return None
+    return EvaluationRunOut(
+        id=run.id,
+        status=run.status,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        error_message=run.error_message,
+        llm_provider=run.llm_provider,
+        overall_score=float(run.overall_score) if run.overall_score is not None else None,
+        overall_flag=run.overall_flag,
+        summary=run.summary,
+        llm_judge_results=[LLMJudgeResultOut.model_validate(r) for r in run.llm_judge_results],
+        deterministic_check_results=[
+            DeterministicCheckResultOut.model_validate(r) for r in run.deterministic_check_results
+        ],
+    )
+
+
+def _submission_to_list_item(submission: Submission, latest_run: EvaluationRun | None) -> SubmissionListItemOut:
+    return SubmissionListItemOut(
+        id=submission.id,
+        content_type=submission.content_type,
+        product_identifier=submission.product_identifier,
+        affiliate_partner=submission.affiliate_partner,
+        poc_email=submission.poc_email,
+        status=submission.status,
+        created_at=submission.created_at,
+        latest_run=_run_to_out(latest_run),
+    )
+
+
+async def _latest_run_for(session: DbSession, submission_id: uuid.UUID) -> EvaluationRun | None:
+    result = await session.execute(
+        select(EvaluationRun)
+        .options(
+            selectinload(EvaluationRun.llm_judge_results),
+            selectinload(EvaluationRun.deterministic_check_results),
+        )
+        .where(EvaluationRun.submission_id == submission_id)
+        .order_by(EvaluationRun.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+@router.post("/batch", response_model=SubmissionUploadResultOut)
+async def upload_batch(
+    session: DbSession,
+    settings: SettingsDep,
+    background_tasks: BackgroundTasks,
+    file: UploadFile,
+    product_identifier: str | None = Form(
+        default=None,
+        description=(
+            "Optional override applied to every submission parsed from this file. Excel/CSV "
+            "uploads can instead set this per-row via a 'product_identifier' column; this "
+            "override exists for single-item formats (HTML/email/plaintext/image) which have no "
+            "per-row column to read it from."
+        ),
+    ),
+    poc_email: str | None = Form(
+        default=None,
+        description=(
+            "Optional point-of-contact email for whoever owns this marketing material, so a "
+            "reviewer knows who to follow up with. Applied to every submission parsed from this "
+            "file. Excel/CSV uploads can instead set this per-row via a 'poc_email' column; this "
+            "override exists for single-item formats (HTML/email/plaintext/image)."
+        ),
+    ),
+) -> SubmissionUploadResultOut:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
+    if poc_email and "@" not in poc_email:
+        raise HTTPException(status_code=400, detail="poc_email must be a valid email address.")
+
+    try:
+        upload_type, strategy = get_strategy_for_filename(file.filename)
+    except UnsupportedFileTypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    file_bytes = await file.read()
+    parsed_submissions = strategy.parse(file_bytes, file.filename)
+
+    storage = SupabaseStorage(settings)
+    batch_id = uuid.uuid4()
+    raw_storage_path = f"{batch_id}/{file.filename}"
+    await storage.upload_file(
+        bucket=settings.SUPABASE_RAW_UPLOADS_BUCKET,
+        path=raw_storage_path,
+        content=file_bytes,
+        content_type=file.content_type or "application/octet-stream",
+    )
+
+    batch = SubmissionBatch(
+        id=batch_id,
+        original_filename=file.filename,
+        storage_path=raw_storage_path,
+        upload_type=upload_type,
+        row_count=len(parsed_submissions),
+    )
+    session.add(batch)
+    await session.flush()
+
+    job_runner = BackgroundTasksJobRunner(background_tasks, settings)
+    created: list[Submission] = []
+
+    for parsed in parsed_submissions:
+        submission = Submission(
+            batch_id=batch.id,
+            content_type=parsed.content_type,
+            source_row_number=parsed.source_row_number,
+            raw_text=parsed.raw_text,
+            raw_html=parsed.raw_html,
+            product_identifier=product_identifier or parsed.product_identifier,
+            affiliate_partner=parsed.affiliate_partner,
+            poc_email=poc_email or parsed.poc_email,
+            landing_url=parsed.landing_url,
+            metadata_=parsed.metadata,
+        )
+        session.add(submission)
+        await session.flush()
+
+        for asset_index, asset in enumerate(parsed.assets):
+            asset_storage_path = f"{submission.id}/{asset_index}"
+            if asset.content:
+                await storage.upload_file(
+                    bucket=settings.SUPABASE_ASSETS_BUCKET,
+                    path=asset_storage_path,
+                    content=asset.content,
+                    content_type=asset.mime_type,
+                )
+            session.add(
+                SubmissionAsset(
+                    submission_id=submission.id,
+                    asset_type=asset.asset_type,
+                    storage_path=asset_storage_path if asset.content else (asset.original_src or ""),
+                    original_src=asset.original_src,
+                    mime_type=asset.mime_type,
+                )
+            )
+
+        run = EvaluationRun(submission_id=submission.id, status="pending")
+        session.add(run)
+        await session.flush()
+
+        job_runner.enqueue(run.id)
+        created.append(submission)
+
+    await session.commit()
+
+    return SubmissionUploadResultOut(
+        batch_id=batch.id,
+        submissions=[_submission_to_list_item(s, None) for s in created],
+    )
+
+
+@router.get("", response_model=list[SubmissionListItemOut])
+async def list_submissions(
+    session: DbSession,
+    status: str | None = Query(default=None),
+    content_type: str | None = Query(default=None),
+    overall_flag: str | None = Query(default=None),
+    sort: str = Query(default="-created_at"),
+) -> list[SubmissionListItemOut]:
+    stmt = select(Submission)
+    if status:
+        stmt = stmt.where(Submission.status == status)
+    if content_type:
+        stmt = stmt.where(Submission.content_type == content_type)
+
+    if sort.lstrip("-") == "created_at":
+        stmt = stmt.order_by(Submission.created_at.desc() if sort.startswith("-") else Submission.created_at)
+
+    result = await session.execute(stmt)
+    submissions = result.scalars().all()
+
+    items = []
+    for submission in submissions:
+        latest_run = await _latest_run_for(session, submission.id)
+        if overall_flag and (latest_run is None or latest_run.overall_flag != overall_flag):
+            continue
+        items.append(_submission_to_list_item(submission, latest_run))
+    return items
+
+
+@router.get("/{submission_id}", response_model=SubmissionDetailOut)
+async def get_submission(session: DbSession, submission_id: uuid.UUID) -> SubmissionDetailOut:
+    submission = await session.get(Submission, submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    latest_run = await _latest_run_for(session, submission_id)
+
+    assets_result = await session.execute(
+        select(SubmissionAsset).where(SubmissionAsset.submission_id == submission_id)
+    )
+    assets = assets_result.scalars().all()
+
+    claims_result = await session.execute(select(Claim).where(Claim.submission_id == submission_id))
+    claims = claims_result.scalars().all()
+
+    return SubmissionDetailOut(
+        id=submission.id,
+        content_type=submission.content_type,
+        product_identifier=submission.product_identifier,
+        affiliate_partner=submission.affiliate_partner,
+        poc_email=submission.poc_email,
+        status=submission.status,
+        created_at=submission.created_at,
+        latest_run=_run_to_out(latest_run),
+        raw_text=submission.raw_text,
+        raw_html=submission.raw_html,
+        landing_url=submission.landing_url,
+        metadata=submission.metadata_,
+        assets=[SubmissionAssetOut.model_validate(a) for a in assets],
+        claims=[ClaimOut.model_validate(c) for c in claims],
+    )

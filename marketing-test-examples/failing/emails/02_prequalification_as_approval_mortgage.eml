@@ -1,0 +1,15 @@
+From: ClearPath Financial Home Loans <homeloans@clearpathfinancial-affiliate.example>
+To: subscriber@example.com
+Subject: Congratulations - You're Approved for Your Mortgage!
+Date: Wed, 14 Jan 2026 09:00:00 -0500
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<h1>You're Approved!</h1>
+<p>After completing our 2-minute prequalification questionnaire, you're approved for your ClearPath Financial mortgage. Your dream home is within reach.</p>
+<p>ClearPath Financial may receive compensation from partner lenders featured in this email.</p>
+<p><a href="https://apply.clearpathfinancial.example/mortgage-next-steps">See Your Next Steps</a></p>
+</body>
+</html>
